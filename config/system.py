@@ -12,10 +12,10 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 # Full paths are required because otherwise the code will not know where to look
 # when it is executed on one of the clusters.
 
-at_biwi = True  # Are you running this code from the ETH Computer Vision Lab (Biwi)?
-project_root = '/scratch_net/bmicdl03/code/python/acdc_public_segmenter'
-data_root = '/scratch_net/bmicdl03/data/ACDC_challenge_20170617/'
-test_data_root = '/scratch_net/bmicdl03/data/ACDC_challenge_testdata/'
+at_biwi = False  # Are you running this code from the ETH Computer Vision Lab (Biwi)?
+project_root = '/media/anant/Shared VMs/ACDC/'
+data_root = '/media/anant/Shared VMs/ACDC/'
+test_data_root = '/media/anant/Shared VMs/ACDC/testing/testing/'
 local_hostnames = ['bmicdl03']  # used to check if on cluster or not,
 # enter the name of your local machine
 

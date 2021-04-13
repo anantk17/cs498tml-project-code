@@ -380,8 +380,8 @@ def load_and_maybe_process_data(input_folder,
 
 if __name__ == '__main__':
 
-    input_folder = '/scratch_net/bmicdl03/data/ACDC_challenge_20170617'
-    preprocessing_folder = 'preproc_data'
+    input_folder = '/media/anant/Shared VMs/ACDC/training'
+    preprocessing_folder = '/media/anant/Shared VMs/ACDC/preproc_data'
 
     # d=load_and_maybe_process_data(input_folder, preprocessing_folder, '3D', (116,116,28), (2.5,2.5,5))
     d=load_and_maybe_process_data(input_folder, preprocessing_folder, '2D', (212,212), (1.36719, 1.36719))

@@ -1,4 +1,3 @@
-
 acdc_logdir
 preproc_data
 src
@@ -6,3 +5,5 @@ src
 *.pyc
 .vscode/
 data/
+tf
+tf/*

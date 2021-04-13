@@ -143,6 +143,7 @@ def score_data(input_folder, output_folder, model_path, exp_config, do_postproce
                                 # GET PREDICTION
                                 network_input = np.float32(np.tile(np.reshape(slice_cropped, (nx, ny, 1)), (batch_size, 1, 1, 1)))
                                 mask_out, logits_out = sess.run([mask_pl, softmax_pl], feed_dict={images_pl: network_input})
+                                
                                 prediction_cropped = np.squeeze(logits_out[0,...])
 
                                 # ASSEMBLE BACK THE SLICES
