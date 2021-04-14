@@ -21,15 +21,11 @@ def fgsm(x, logits, exp_config, kwargs = dict()):
     #assert logits.op.type != 'Softmax'
 
     preds_max = tf.reduce_max(logits, axis = 3, keepdims = True,name=None,reduction_indices=None)
-    print("PREDS_MAX_SHAPE", preds_max.shape)
     y = tf.to_float(tf.equal(logits, preds_max))
-    print("Y_SHAPE", y.shape)
     y = tf.stop_gradient(y)
-    print("Y_SHAPE", y.shape)
+    #We need a non zero hot encoded tensor at this point, hence we want to reduce
     y = tf.reduce_sum(y, axis = 3, name=None,reduction_indices=None)
-    print("Y_SHAPE", y.shape)
     y = tf.to_int32(y)
-    print("Y_SHAPE, LOGITS_SHAPE", y.shape, logits.shape)
 
     #compute loss
     loss = model.loss(logits, y,
