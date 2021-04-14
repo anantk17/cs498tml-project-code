@@ -12,6 +12,9 @@ from skimage import transform
 import numpy as np
 import attack as adv_attack
 import matplotlib.pyplot as plt
+import acdc_data
+import train
+from background_generator import BackgroundGenerator
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 
@@ -27,8 +30,21 @@ def generate_adversarial_examples(input_folder, output_path, model_path, attack,
     image_tensor_shape = [batch_size] + list(exp_config.image_size) + [1]
     images_pl = tf.placeholder(tf.float32, shape=image_tensor_shape, name='images')
 
-    logits_pl = model.inference(images_pl,exp_config,training=tf.constant(False, dtype=tf.bool))#exp_config.model_handle(images_pl, tf.constant(False, dtype=tf.bool), nlabels=exp_config.nlabels)
-    #mask_pl, softmax_pl = model.predict(images_pl, exp_config)
+    logits_pl = model.inference(images_pl,exp_config=exp_config, training=tf.constant(False, dtype=tf.bool))
+
+    data = acdc_data.load_and_maybe_process_data(
+        input_folder=sys_config.data_root,
+        preprocessing_folder=sys_config.preproc_folder,
+        mode=exp_config.data_mode,
+        size=exp_config.image_size,
+        target_resolution=exp_config.target_resolution,
+        force_overwrite=False,
+        split_test_train=True
+    )
+
+    images = data['images_test']
+    labels = data['masks_test']
+    
     saver = tf.train.Saver()
     init = tf.global_variables_initializer()
 
@@ -37,98 +53,29 @@ def generate_adversarial_examples(input_folder, output_path, model_path, attack,
         checkpoint_path = utils.get_latest_model_checkpoint_path(model_path,'model_best_dice.ckpt')
         saver.restore(sess, checkpoint_path)
 
-        for folder in os.listdir(input_folder):
-            folder_path = os.path.join(input_folder, folder)
+        for batch in BackgroundGenerator(train.iterate_minibatches(images,labels,1)):
+            x,y = batch
 
-            if os.path.isdir(folder_path):
-                infos = {}
-                for line in open(os.path.join(folder_path, 'Info.cfg')):
-                    label, value = line.split(':')
-                    infos[label] = value.rstrip('\n').lstrip(' ')
+            if attack == 'fgsm':
+                adv_x = adv_attack.fgsm(x,y, images_pl, logits_pl, exp_config, sess, attack_args)
+            else:
+                raise NotImplementedError
 
-                patient_id = folder.lstrip('patient')
-                ED_frame = int(infos['ED'])
-                ES_frame = int(infos['ES'])
+            non_adv_mask_out = sess.run([tf.arg_max(tf.nn.softmax(logits_pl), dimension=-1)], feed_dict={images_pl : x})
+            adv_mask_out = sess.run([tf.arg_max(tf.nn.softmax(logits_pl), dimension=-1)], feed_dict={images_pl : adv_x})
 
-                for file in glob.glob(os.path.join(folder_path, 'patient???_frame??.nii.gz')):
-                    
-                    logging.info(' ----- Doing image: -------------------------')
-                    logging.info('Doing: %s' % file)
-                    logging.info(' --------------------------------------------')
-
-                    file_base = file.split('.nii.gz')[0]
-
-                    frame = int(file_base.split('frame')[-1])
-                    img_dat = utils.load_nii(file)
-                    img = img_dat[0].copy()
-                    img = image_utils.normalise_image(img)
-
-                    #Assuming image is 2D
-                    pixel_size = (img_dat[2].structarr['pixdim'][1], img_dat[2].structarr['pixdim'][2])
-                    scale_vector = (pixel_size[0] / exp_config.target_resolution[0],
-                                    pixel_size[1] / exp_config.target_resolution[1])
-                    predictions = []
-
-                    for zz in range(img.shape[2]):
-
-                        slice_img = np.squeeze(img[:,:,zz])
-                        slice_rescaled = transform.rescale(slice_img,
-                                                        scale_vector,
-                                                        order=1,
-                                                        preserve_range=True,
-                                                        multichannel=False,
-                                                        anti_aliasing=True,
-                                                        mode='constant')
-
-                        x, y = slice_rescaled.shape
-
-                        x_s = (x - nx) // 2
-                        y_s = (y - ny) // 2
-                        x_c = (nx - x) // 2
-                        y_c = (ny - y) // 2
-
-                        # Crop section of image for prediction
-                        if x > nx and y > ny:
-                            slice_cropped = slice_rescaled[x_s:x_s+nx, y_s:y_s+ny]
-                        else:
-                            slice_cropped = np.zeros((nx,ny))
-                            if x <= nx and y > ny:
-                                slice_cropped[x_c:x_c+ x, :] = slice_rescaled[:,y_s:y_s + ny]
-                            elif x > nx and y <= ny:
-                                slice_cropped[:, y_c:y_c + y] = slice_rescaled[x_s:x_s + nx, :]
-                            else:
-                                slice_cropped[x_c:x_c+x, y_c:y_c + y] = slice_rescaled[:, :]
-
-                        network_input = np.float32(np.tile(np.reshape(slice_cropped, (nx, ny, 1)), (batch_size, 1, 1, 1)))
-                        #nw_ip2 = network_input.copy()
-                        logits_out = sess.run([logits_pl], feed_dict={images_pl: network_input})
-                        prediction_cropped = logits_out[0]
-                        print("Type check",type(network_input), type(prediction_cropped))
-                        print("Shape check", network_input.shape, prediction_cropped.shape)
-                        adversarial_output = None
-
-                        if attack == 'fgsm':
-                            adversarial_output = adv_attack.fgsm(network_input,prediction_cropped,exp_config,attack_args)
-                        else:
-                            raise NotImplementedError
-
-                        if frame == ED_frame:
-                            frame_suffix = '_ED'
-                        elif frame == ES_frame:
-                            frame_suffix = '_ES'
-                        else:
-                            raise ValueError('Frame doesnt correspond to ED or ES. frame = %d, ED = %d, ES = %d' %
-                                             (frame, ED_frame, ES_frame))
-                        
-                        adv_image_file_name = os.path.join(output_path,'image','patient' + patient_id + frame_suffix + '.nii.gz')
-                        utils.save_nii(adv_image_file_name, adversarial_output, img_dat[1], img_dat[2])
-
-                        fig = plt.figure()
-                        ax1 = fig.add_subplot(241)
-                        ax1.imshow(np.squeeze(img), cmap='gray')
-                        ax2 = fig.add_subplot(242)
-                        ax2.imshow(np.squeeze(adversarial_output), cmap='gray')
-                        plt.show()
+            fig = plt.figure()
+            ax1 = fig.add_subplot(241)
+            ax1.imshow(np.squeeze(x), cmap='gray')
+            ax5 = fig.add_subplot(242)
+            ax5.imshow(np.squeeze(adv_x), cmap='gray')
+            ax2 = fig.add_subplot(243)
+            ax2.imshow(np.squeeze(y))
+            ax3 = fig.add_subplot(244)
+            ax3.imshow(np.squeeze(non_adv_mask_out))
+            ax4 = fig.add_subplot(245)
+            ax4.imshow(np.squeeze(adv_mask_out))
+            plt.show()
 
 
 if __name__ == '__main__':
