@@ -26,8 +26,14 @@ def fgsm(x, y, images_pl, logits_pl, exp_config, sess, kwargs = dict()):
 
     return adv_x
 
-def pgd(input_x, logits, kwargs = dict()):
-    pass
+def pgd(x, y, images_pl , logits_pl, exp_config, sess, kwargs = dict()):
+    epochs = kwargs['epochs']
+
+    X_adv = x.copy()
+    for i in range(epochs):
+        X_adv = fgsm(X_adv, y, images_pl, logits_pl, exp_config, sess, kwargs)
+
+    return X_adv
 
 def smoothed_pgd(input_x, logits, kwargs = dict()):
     pass

@@ -16,11 +16,13 @@ import acdc_data
 import train
 from background_generator import BackgroundGenerator
 
+np.random.seed(0)
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 
 sys_config.setup_GPU_environment()
 
-ATTACKS = ['fgsm']
+ATTACKS = ['fgsm','pgd']
 
 def generate_adversarial_examples(input_folder, output_path, model_path, attack, attack_args, exp_config):
     nx, ny = exp_config.image_size[:2]
@@ -58,6 +60,8 @@ def generate_adversarial_examples(input_folder, output_path, model_path, attack,
 
             if attack == 'fgsm':
                 adv_x = adv_attack.fgsm(x,y, images_pl, logits_pl, exp_config, sess, attack_args)
+            elif attack == 'pgd':
+                adv_x = adv_attack.pgd(x,y,images_pl, logits_pl, exp_config, sess, attack_args )
             else:
                 raise NotImplementedError
 
@@ -102,7 +106,7 @@ if __name__ == '__main__':
     utils.makefolder(image_path)
     utils.makefolder(diff_path)
 
-    attack_args = {'eps' : 0.3, 'ord' : np.inf}
+    attack_args = {'eps' : 0.3, 'ord' : np.inf, 'epochs' : 10}
 
     generate_adversarial_examples(input_path, 
                                   output_path,
