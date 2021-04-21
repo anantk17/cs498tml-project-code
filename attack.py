@@ -2,23 +2,23 @@ import numpy as np
 import tensorflow as tf
 import model
 
-def fgsm(x, y, images_pl, logits_pl, exp_config, sess, kwargs = dict()):
 
+def fgsm(x, y, images_pl, logits_pl, exp_config, sess, kwargs=dict()):
     eps = kwargs['eps']
 
     mask_tensor_shape = [1] + list(exp_config.image_size)
-    
+
     labels_pl = tf.placeholder(tf.uint8, shape=mask_tensor_shape)
-    
-    #compute loss
+
+    # compute loss
     loss = model.loss(logits_pl,
-                    labels_pl,
-                    nlabels=exp_config.nlabels, 
-                    loss_type=exp_config.loss_type, 
-                    weight_decay=exp_config.weight_decay)
-    
+                      labels_pl,
+                      nlabels=exp_config.nlabels,
+                      loss_type=exp_config.loss_type,
+                      weight_decay=exp_config.weight_decay)
+
     grad_pl, = tf.gradients(loss, images_pl)
-    grad = sess.run([grad_pl], feed_dict = {images_pl : x, labels_pl : y})[0]
+    grad = sess.run([grad_pl], feed_dict={images_pl: x, labels_pl: y})[0]
 
     assert grad is not None
 
@@ -26,7 +26,8 @@ def fgsm(x, y, images_pl, logits_pl, exp_config, sess, kwargs = dict()):
 
     return adv_x
 
-def pgd(x, y, images_pl , logits_pl, exp_config, sess, kwargs = dict()):
+
+def pgd(x, y, images_pl, logits_pl, exp_config, sess, kwargs=dict()):
     epochs = kwargs['epochs']
 
     X_adv = x.copy()
@@ -35,8 +36,71 @@ def pgd(x, y, images_pl , logits_pl, exp_config, sess, kwargs = dict()):
 
     return X_adv
 
-def smoothed_pgd(input_x, logits, kwargs = dict()):
+
+def pgd_conv(x, y, images_pl, logits_pl, exp_config, sess, eps=None, step_alpha=None, num_steps=None, sizes=None,
+             weights=None):
+    mask_tensor_shape = [1] + list(exp_config.image_size)
+
+    labels_pl = tf.placeholder(tf.uint8, shape=mask_tensor_shape)
+
+    # compute loss
+    loss = model.loss(logits_pl,
+                      labels_pl,
+                      nlabels=exp_config.nlabels,
+                      loss_type=exp_config.loss_type,
+                      weight_decay=exp_config.weight_decay)
+
+    crafting_input = x.copy()
+    crafting_output = x.copy()
+    crafting_target = y.copy()
+    for i in range(num_steps):
+        grad_pl, = tf.gradients(loss, images_pl)
+        grad = sess.run([grad_pl], feed_dict={images_pl: crafting_input,
+                                              labels_pl: crafting_target})[0]
+        assert grad is not None
+        added = np.sign(grad)
+        step_output = crafting_input + step_alpha * added
+        total_adv = step_output - x
+        total_adv = np.clip(total_adv, -eps, eps)
+        crafting_output = x + total_adv
+        crafting_input = crafting_output.copy()
+
+    added = crafting_output - x
+    print('PDG DONE')
+
+    for i in range(num_steps * 2):
+        temp = tf.nn.conv2d(input=added, filter=weights[0], padding='SAME', data_format='NHWC')
+        for j in range(len(sizes) - 1):
+            temp = temp + tf.nn.conv2d(input=added, filter=weights[j + 1], padding='SAME', data_format='NHWC')
+
+        temp = temp / float(len(sizes))  # average over multiple convolutions
+
+        temp = temp.eval(session=sess)
+
+        grad_pl, = tf.gradients(loss, images_pl)
+        grad = sess.run([grad_pl], feed_dict={images_pl: temp,
+                                              labels_pl: crafting_target})[0]
+        assert grad is not None
+        added = added + step_alpha * np.sign(grad)
+        added = np.clip(added, -eps, eps)
+
+    print('SMOOTH PGD1 DONE')
+
+    temp = tf.nn.conv2d(input=added, filter=weights[0], padding='SAME', data_format='NHWC')
+    for j in range(len(sizes) - 1):
+        temp = temp + tf.nn.conv2d(input=added, filter=weights[j + 1], padding='SAME', data_format='NHWC')
+    temp = temp / float(len(sizes))
+    temp = temp.eval(session=sess)
+    crafting_output = x + temp
+
+    print('SMOOTH PGD2 DONE')
+
+    return crafting_output
+
+
+def smoothed_pgd(input_x, logits, kwargs=dict()):
     pass
 
-def adaptive_mask(input_x, logits, kwargs = dict()):
+
+def adaptive_mask(input_x, logits, kwargs=dict()):
     pass
