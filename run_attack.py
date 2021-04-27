@@ -43,7 +43,7 @@ def gaussian_kernel(size: int,
 def generate_adversarial_examples(input_folder, output_path, model_path, attack, attack_args, exp_config,
                                   add_gaussian=False):
     nx, ny = exp_config.image_size[:2]
-    batch_size = 10
+    batch_size = 1
     num_channels = exp_config.nlabels
 
     image_tensor_shape = [batch_size] + list(exp_config.image_size) + [1]
@@ -64,8 +64,8 @@ def generate_adversarial_examples(input_folder, output_path, model_path, attack,
         split_test_train=True
     )
 
-    images = data['images_test']
-    labels = data['masks_test']
+    images = data['images_test'][:20]
+    labels = data['masks_test'][:20]
 
     print("Num images train {} test {}".format(len(data['images_train']), len(images)))
 
@@ -88,7 +88,7 @@ def generate_adversarial_examples(input_folder, output_path, model_path, attack,
         for batch in BackgroundGenerator(train.iterate_minibatches(images, labels, batch_size)):
             x, y = batch
             batches += 1
-            # non_adv_mask_out = sess.run([tf.arg_max(tf.nn.softmax(logits_pl), dimension=-1)], feed_dict={images_pl: x})
+            non_adv_mask_out = sess.run([tf.arg_max(tf.nn.softmax(logits_pl), dimension=-1)], feed_dict={images_pl: x})
 
             if attack == 'fgsm':
                 adv_x = adv_attack.fgsm_run(x, y, images_pl, labels_pl, logits_pl, exp_config, sess, attack_args)
@@ -109,7 +109,7 @@ def generate_adversarial_examples(input_folder, output_path, model_path, attack,
 
             print(l2_diff_sum, ln_diff_sum)
 
-            # adv_mask_out = sess.run([tf.arg_max(tf.nn.softmax(logits_pl), dimension=-1)], feed_dict={images_pl: adv_x})
+            adv_mask_out = sess.run([tf.arg_max(tf.nn.softmax(logits_pl), dimension=-1)], feed_dict={images_pl: adv_x})
 
             closs, cdice = sess.run(eval_loss, feed_dict={images_pl: x, labels_pl: y})
             baseline_closs = closs + baseline_closs
@@ -125,7 +125,7 @@ def generate_adversarial_examples(input_folder, output_path, model_path, attack,
             attack_closs = adv_closs + attack_closs
             attack_cdice = adv_cdice + attack_cdice
 
-            """ fig = plt.figure()
+            fig = plt.figure()
             ax1 = fig.add_subplot(241)
             ax1.imshow(np.squeeze(x), cmap='gray')
             ax5 = fig.add_subplot(242)
@@ -136,7 +136,10 @@ def generate_adversarial_examples(input_folder, output_path, model_path, attack,
             ax3.imshow(np.squeeze(non_adv_mask_out))
             ax4 = fig.add_subplot(245)
             ax4.imshow(np.squeeze(adv_mask_out))
-            plt.show() """
+
+            image_output_file = "images/output-{}-{}.pdf".format(attack,batches)
+            print("Writing output to ", image_output_file)
+            plt.savefig(image_output_file,format="pdf")
 
         print("Evaluation results")
         print("{} Attack Params {}".format(attack, attack_args))
@@ -187,7 +190,7 @@ if __name__ == '__main__':
         print(crafting_sizes)
         print(crafting_weights)
 
-        attack_args = {'eps': 10, 'step_alpha': 3, 'num_steps': 20, 'sizes': crafting_sizes,
+        attack_args = {'eps': 5, 'step_alpha': 1, 'num_steps': 10, 'sizes': crafting_sizes,
                        'weights': crafting_weights}
         generate_adversarial_examples(input_path,
                                       output_path,
