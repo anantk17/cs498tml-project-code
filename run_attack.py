@@ -143,6 +143,7 @@ def generate_adversarial_examples(input_folder, output_path, model_path, attack,
                 image_output_file = "images/output-{}-{}-{}-{}.pdf".format(attack, add_gaussian, batches, i)
                 print("Writing output to ", image_output_file)
                 plt.savefig(image_output_file, format="pdf")
+                plt.close(fig)
 
         print("Evaluation results")
         print("{} Attack Params {}".format(attack, attack_args))
@@ -159,7 +160,7 @@ if __name__ == '__main__':
     parser.add_argument("EXP_PATH", type=str,
                         help="Path to experiment folder (assuming you are in the working directory)")
     parser.add_argument("ATTACK", type=str, help="Algorithm to generate adversarial examples", choices=ATTACKS)
-    parser.add_argument("GAUSSIAN", type=lambda x: (str(x).lower() in ['true','1', 'yes']),
+    parser.add_argument("GAUSSIAN", type=lambda x: (str(x).lower() in ['true', '1', 'yes']),
                         help="Perform gaussian attack with ATTACK as reference (default False)", default=False)
     args = parser.parse_args()
 
