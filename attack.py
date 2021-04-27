@@ -57,19 +57,19 @@ def pgd_conv(x, y, images_pl, labels_pl, logits_pl, exp_config, sess, eps=None, 
                       weight_decay=exp_config.weight_decay)
 
     crafting_input = x.copy()
-    crafting_output = x.copy()
-    crafting_target = y.copy()
+    crafting_output = crafting_input
+    # crafting_target = y.copy()
     for i in range(num_steps):
         grad_pl, = tf.gradients(loss, images_pl)
         grad = sess.run([grad_pl], feed_dict={images_pl: crafting_input,
-                                              labels_pl: crafting_target})[0]
+                                              labels_pl: y})[0]
         assert grad is not None
         added = np.sign(grad)
         step_output = crafting_input + step_alpha * added
         total_adv = step_output - x
         total_adv = np.clip(total_adv, -eps, eps)
         crafting_output = x + total_adv
-        crafting_input = crafting_output.copy()
+        crafting_input = crafting_output
 
     added = crafting_output - x
     print('PDG DONE')
@@ -84,8 +84,8 @@ def pgd_conv(x, y, images_pl, labels_pl, logits_pl, exp_config, sess, eps=None, 
         temp = temp.eval(session=sess)
 
         grad_pl, = tf.gradients(loss, images_pl)
-        grad = sess.run([grad_pl], feed_dict={images_pl: temp,
-                                              labels_pl: crafting_target})[0]
+        grad = sess.run([grad_pl], feed_dict={images_pl: x + temp,
+                                              labels_pl: y})[0]
         assert grad is not None
         added = added + step_alpha * np.sign(grad)
         added = np.clip(added, -eps, eps)
