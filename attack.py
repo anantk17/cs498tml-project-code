@@ -104,6 +104,35 @@ def pgd_conv(x, y, images_pl, labels_pl, logits_pl, exp_config, sess, eps=None, 
     return crafting_output
 
 
+def add_gaussian_noise(x, adv_x, sess, num_of_trials=5, eps=None, sizes=None, weights=None):
+    crafting_outputs = []
+    for k in range(num_of_trials):
+        crafted_input = adv_x.copy()
+
+        crafted_input = crafted_input + np.random.randn(crafted_input.shape[0],
+                                                        crafted_input.shape[1],
+                                                        crafted_input.shape[2],
+                                                        crafted_input.shape[3]) * np.random.randint(1, 10)  # add noise
+        added = crafted_input - x
+        # print(type(added), type(weights[0]))
+        # print(x.shape, adv_x.shape, crafted_input.shape, added.shape, weights[0].shape)
+        temp = tf.nn.conv2d(input=added, filter=tf.cast(weights[0], dtype=tf.float64), padding='SAME',
+                            data_format='NHWC')
+        for j in range(len(sizes) - 1):
+            temp = temp + tf.nn.conv2d(input=added, filter=tf.cast(weights[j + 1], dtype=tf.float64), padding='SAME',
+                                       data_format='NHWC')
+
+        temp = temp / float(len(sizes))  # average over multiple convolutions
+
+        temp = temp.eval(session=sess)
+
+        total_adv = np.clip(temp, -eps, eps)
+        crafting_output = x + total_adv
+        crafting_outputs.append(crafting_output)
+
+    return crafting_outputs
+
+
 def smoothed_pgd(input_x, logits, kwargs=dict()):
     pass
 

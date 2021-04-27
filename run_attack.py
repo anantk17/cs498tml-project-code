@@ -40,7 +40,8 @@ def gaussian_kernel(size: int,
     return gauss_kernel / tf.reduce_sum(gauss_kernel)
 
 
-def generate_adversarial_examples(input_folder, output_path, model_path, attack, attack_args, exp_config):
+def generate_adversarial_examples(input_folder, output_path, model_path, attack, attack_args, exp_config,
+                                  add_gaussian=False):
     nx, ny = exp_config.image_size[:2]
     batch_size = 10
     num_channels = exp_config.nlabels
@@ -138,6 +139,19 @@ def generate_adversarial_examples(input_folder, output_path, model_path, attack,
 
         
 
+            if add_gaussian:
+                print('adding gaussian noise')
+                adv_gauss_x = adv_attack.add_gaussian_noise(x, adv_x, sess, eps=attack_args['eps'],
+                                                            sizes=attack_args['sizes'], weights=attack_args['weights'])
+                fig, ax = plt.subplots(nrows=len(adv_gauss_x), ncols=2, figsize=(6, len(adv_gauss_x)*2))
+                for i in range(len(adv_gauss_x)):
+                    adv_mask_out_temp = sess.run([tf.arg_max(tf.nn.softmax(logits_pl), dimension=-1)],
+                                                 feed_dict={images_pl: adv_gauss_x[i]})
+                    ax[i][0].imshow(np.squeeze(adv_gauss_x[i]), cmap='gray')
+                    ax[i][1].imshow(np.squeeze(adv_mask_out_temp))
+
+                plt.show()
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Script to evaluate a neural network model on the ACDC challenge data")
@@ -180,12 +194,19 @@ if __name__ == '__main__':
 
         attack_args = {'eps': 10, 'step_alpha': 3, 'num_steps': 20, 'sizes': crafting_sizes,
                        'weights': crafting_weights}
+        generate_adversarial_examples(input_path,
+                                      output_path,
+                                      model_path,
+                                      attack=args.ATTACK,
+                                      attack_args=attack_args,
+                                      exp_config=exp_config,
+                                      add_gaussian=True)
     else:
         attack_args = {'alpha': 0.01, 'eps' : 10,'ord': np.inf, 'epochs': 10}
 
-    generate_adversarial_examples(input_path,
-                                  output_path,
-                                  model_path,
-                                  attack=args.ATTACK,
-                                  attack_args=attack_args,
-                                  exp_config=exp_config)
+        generate_adversarial_examples(input_path,
+                                      output_path,
+                                      model_path,
+                                      attack=args.ATTACK,
+                                      attack_args=attack_args,
+                                      exp_config=exp_config)
