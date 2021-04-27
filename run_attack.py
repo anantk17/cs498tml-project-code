@@ -42,14 +42,16 @@ def gaussian_kernel(size: int,
 
 def generate_adversarial_examples(input_folder, output_path, model_path, attack, attack_args, exp_config):
     nx, ny = exp_config.image_size[:2]
-    batch_size = 1
+    batch_size = 10
     num_channels = exp_config.nlabels
 
     image_tensor_shape = [batch_size] + list(exp_config.image_size) + [1]
+    mask_tensor_shape = [batch_size] + list(exp_config.image_size)
     images_pl = tf.placeholder(tf.float32, shape=image_tensor_shape, name='images')
-
+    labels_pl = tf.placeholder(tf.uint8, shape=mask_tensor_shape, name='labels')
     logits_pl = model.inference(images_pl, exp_config=exp_config, training=tf.constant(False, dtype=tf.bool))
-
+    eval_loss = model.evaluation(logits_pl, labels_pl, images_pl, nlabels=exp_config.nlabels, loss_type=exp_config.loss_type)
+    
     data = acdc_data.load_and_maybe_process_data(
         input_folder=sys_config.data_root,
         preprocessing_folder=sys_config.preproc_folder,
@@ -63,31 +65,59 @@ def generate_adversarial_examples(input_folder, output_path, model_path, attack,
     images = data['images_test']
     labels = data['masks_test']
 
+    print("Num images train {} test {}".format(len(data['images_train']),len(images)))
+
     saver = tf.train.Saver()
     init = tf.global_variables_initializer()
+
+    baseline_closs = 0.0
+    baseline_cdice = 0.0
+    attack_closs = 0.0
+    attack_cdice = 0.0
+    l2_diff_sum = 0.0
+    ln_diff_sum = 0.0
+    batches = 0
 
     with tf.Session() as sess:
         sess.run(init)
         checkpoint_path = utils.get_latest_model_checkpoint_path(model_path, 'model_best_dice.ckpt')
         saver.restore(sess, checkpoint_path)
 
-        for batch in BackgroundGenerator(train.iterate_minibatches(images, labels, 1)):
+        for batch in BackgroundGenerator(train.iterate_minibatches(images, labels, batch_size)):
             x, y = batch
+            batches += 1
+            #non_adv_mask_out = sess.run([tf.arg_max(tf.nn.softmax(logits_pl), dimension=-1)], feed_dict={images_pl: x})
 
-            if attack == 'fgsm':
-                adv_x = adv_attack.fgsm(x, y, images_pl, logits_pl, exp_config, sess, attack_args)
-            elif attack == 'pgd':
-                adv_x = adv_attack.pgd(x, y, images_pl, logits_pl, exp_config, sess, attack_args)
+            if attack in ['fgsm','pgd']:
+                if attack == 'fgsm':
+                    adv_x = adv_attack.fgsm_run(x, y, images_pl, labels_pl, logits_pl, exp_config, sess, attack_args)
+                elif attack == 'pgd':
+                    adv_x = adv_attack.pgd(x, y, images_pl, labels_pl, logits_pl, exp_config, sess, attack_args)
             elif attack == 'spgd':
-                adv_x = adv_attack.pgd_conv(x, y, images_pl, logits_pl, exp_config, sess, **attack_args)
+                adv_x = adv_attack.pgd_conv(x, y, images_pl, labels_pl, logits_pl, exp_config, sess, **attack_args)
             else:
                 raise NotImplementedError
+            
+            l2_diff_sum += np.average(np.squeeze(np.linalg.norm(adv_x - x,axis=(1,2))))
+            ln_diff_sum += np.average(np.squeeze(np.linalg.norm(adv_x - x,axis=(1,2),ord=np.inf)))
 
-            print('Difference in adv_x and x:', np.linalg.norm(adv_x) / np.linalg.norm(x))
-            non_adv_mask_out = sess.run([tf.arg_max(tf.nn.softmax(logits_pl), dimension=-1)], feed_dict={images_pl: x})
-            adv_mask_out = sess.run([tf.arg_max(tf.nn.softmax(logits_pl), dimension=-1)], feed_dict={images_pl: adv_x})
+            print(l2_diff_sum, ln_diff_sum)
+            
 
-            fig = plt.figure()
+            #adv_mask_out = sess.run([tf.arg_max(tf.nn.softmax(logits_pl), dimension=-1)], feed_dict={images_pl: adv_x})
+
+            closs, cdice = sess.run(eval_loss, feed_dict = {images_pl : x, labels_pl : y})
+            baseline_closs = closs + baseline_closs
+            baseline_cdice = cdice + baseline_cdice
+            #cdice_sum['baseline'] = cdice + cdice_sum.get('baseline',0.0)
+
+            adv_closs, adv_cdice = sess.run(eval_loss, feed_dict = {images_pl : adv_x, labels_pl : y})
+            print("CLOSS : {}, CDICE : {}".format(closs, cdice))
+            print("ADV CLOSS : {}, ADV CDICE : {}".format(adv_closs, adv_cdice))
+            attack_closs = adv_closs + attack_closs
+            attack_cdice = adv_cdice + attack_cdice
+
+            """ fig = plt.figure()
             ax1 = fig.add_subplot(241)
             ax1.imshow(np.squeeze(x), cmap='gray')
             ax5 = fig.add_subplot(242)
@@ -98,7 +128,15 @@ def generate_adversarial_examples(input_folder, output_path, model_path, attack,
             ax3.imshow(np.squeeze(non_adv_mask_out))
             ax4 = fig.add_subplot(245)
             ax4.imshow(np.squeeze(adv_mask_out))
-            plt.show()
+            plt.show() """
+
+        print("Evaluation results")
+        print("{} Attack Params {}".format(attack, attack_args) )
+        print("Baseline metrics: Avg loss {}, Avg DICE Score {} ".format(baseline_closs/batches , baseline_cdice/batches))          
+        print("{} Attack effectiveness: Avg loss {}, Avg DICE Score {} ".format(attack, attack_closs/batches , attack_cdice/batches))
+        print("{} Attack visibility: Avg l2-norm diff {} Avg l-inf-norm diff {}".format(attack, l2_diff_sum/batches, ln_diff_sum/batches))
+
+        
 
 
 if __name__ == '__main__':
@@ -143,7 +181,7 @@ if __name__ == '__main__':
         attack_args = {'eps': 10, 'step_alpha': 3, 'num_steps': 20, 'sizes': crafting_sizes,
                        'weights': crafting_weights}
     else:
-        attack_args = {'eps': 0.3, 'ord': np.inf, 'epochs': 10}
+        attack_args = {'alpha': 0.01, 'eps' : 10,'ord': np.inf, 'epochs': 10}
 
     generate_adversarial_examples(input_path,
                                   output_path,
