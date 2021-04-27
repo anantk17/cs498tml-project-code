@@ -89,15 +89,19 @@ def generate_adversarial_examples(input_folder, output_path, model_path, attack,
             batches += 1
             #non_adv_mask_out = sess.run([tf.arg_max(tf.nn.softmax(logits_pl), dimension=-1)], feed_dict={images_pl: x})
 
-            if attack in ['fgsm','pgd']:
-                if attack == 'fgsm':
-                    adv_x = adv_attack.fgsm_run(x, y, images_pl, labels_pl, logits_pl, exp_config, sess, attack_args)
-                elif attack == 'pgd':
-                    adv_x = adv_attack.pgd(x, y, images_pl, labels_pl, logits_pl, exp_config, sess, attack_args)
+            if attack == 'fgsm':
+                adv_x = adv_attack.fgsm_run(x, y, images_pl, labels_pl, logits_pl, exp_config, sess, attack_args)
+            elif attack == 'pgd':
+                adv_x = adv_attack.pgd(x, y, images_pl, labels_pl, logits_pl, exp_config, sess, attack_args)
             elif attack == 'spgd':
                 adv_x = adv_attack.pgd_conv(x, y, images_pl, labels_pl, logits_pl, exp_config, sess, **attack_args)
             else:
                 raise NotImplementedError
+
+            if add_gaussian:
+                print('adding gaussian noise')
+                adv_x = adv_attack.add_gaussian_noise(x, adv_x, sess, eps=attack_args['eps'],
+                                                            sizes=attack_args['sizes'], weights=attack_args['weights'])
             
             l2_diff_sum += np.average(np.squeeze(np.linalg.norm(adv_x - x,axis=(1,2))))
             ln_diff_sum += np.average(np.squeeze(np.linalg.norm(adv_x - x,axis=(1,2),ord=np.inf)))
@@ -110,7 +114,6 @@ def generate_adversarial_examples(input_folder, output_path, model_path, attack,
             closs, cdice = sess.run(eval_loss, feed_dict = {images_pl : x, labels_pl : y})
             baseline_closs = closs + baseline_closs
             baseline_cdice = cdice + baseline_cdice
-            #cdice_sum['baseline'] = cdice + cdice_sum.get('baseline',0.0)
 
             adv_closs, adv_cdice = sess.run(eval_loss, feed_dict = {images_pl : adv_x, labels_pl : y})
             print("CLOSS : {}, CDICE : {}".format(closs, cdice))
@@ -136,21 +139,6 @@ def generate_adversarial_examples(input_folder, output_path, model_path, attack,
         print("Baseline metrics: Avg loss {}, Avg DICE Score {} ".format(baseline_closs/batches , baseline_cdice/batches))          
         print("{} Attack effectiveness: Avg loss {}, Avg DICE Score {} ".format(attack, attack_closs/batches , attack_cdice/batches))
         print("{} Attack visibility: Avg l2-norm diff {} Avg l-inf-norm diff {}".format(attack, l2_diff_sum/batches, ln_diff_sum/batches))
-
-        
-
-            if add_gaussian:
-                print('adding gaussian noise')
-                adv_gauss_x = adv_attack.add_gaussian_noise(x, adv_x, sess, eps=attack_args['eps'],
-                                                            sizes=attack_args['sizes'], weights=attack_args['weights'])
-                fig, ax = plt.subplots(nrows=len(adv_gauss_x), ncols=2, figsize=(6, len(adv_gauss_x)*2))
-                for i in range(len(adv_gauss_x)):
-                    adv_mask_out_temp = sess.run([tf.arg_max(tf.nn.softmax(logits_pl), dimension=-1)],
-                                                 feed_dict={images_pl: adv_gauss_x[i]})
-                    ax[i][0].imshow(np.squeeze(adv_gauss_x[i]), cmap='gray')
-                    ax[i][1].imshow(np.squeeze(adv_mask_out_temp))
-
-                plt.show()
 
 
 if __name__ == '__main__':
