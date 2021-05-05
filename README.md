@@ -15,7 +15,9 @@ The code and instructions for training the target model can be found here - http
 Open the `config/system.py` and edit all the paths there to match your system.
 
 Launch attacks by running the following
-``` python evaluate acdc_logdir/unet2D_bn_modified_wxent <attack> <Gaussian enabled>```
+``` python evaluate acdc_logdir/unet2D_bn_modified_wxent <attack> <Add Gaussian noise>```
+
+For example, ```python evaluate acdc_logdir/unet2D_bn_modified_wxent fgsm False```
 
 where you have to adapt the line to match your experiment. Note that, the path must be given relative to your
 working directory. Giving the full path will not work.
