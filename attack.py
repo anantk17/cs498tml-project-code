@@ -72,7 +72,7 @@ def pgd_conv(x, y, images_pl, labels_pl, logits_pl, exp_config, sess, eps=None, 
         crafting_input = crafting_output
 
     added = crafting_output - x
-    print('PDG DONE')
+    print('PGD DONE')
 
     for i in range(epochs * 2):
         temp = tf.nn.conv2d(input=added, filter=weights[0], padding='SAME', data_format='NHWC')
