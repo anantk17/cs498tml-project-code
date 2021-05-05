@@ -4,7 +4,7 @@ import model
 
 
 def fgsm_run(x, y, images_pl, labels_pl, logits_pl, exp_config, sess, kwargs=dict()):
-    eps = kwargs['eps']
+    alpha = kwargs['step_alpha']
     loss = model.loss(logits_pl,
                       labels_pl,
                       nlabels=exp_config.nlabels,
@@ -17,14 +17,14 @@ def fgsm_run(x, y, images_pl, labels_pl, logits_pl, exp_config, sess, kwargs=dic
 
     assert grad is not None
 
-    adv_x = x + eps * np.sign(grad)
+    adv_x = x + alpha * np.sign(grad)
 
     return adv_x
 
 
 def pgd(x, y, images_pl, labels_pl, logits_pl, exp_config, sess, kwargs=dict()):
     epochs = kwargs['epochs']
-    alpha = kwargs['alpha']
+    alpha = kwargs['step_alpha']
     eps = kwargs['eps']
 
     loss = model.loss(logits_pl,
@@ -45,7 +45,7 @@ def pgd(x, y, images_pl, labels_pl, logits_pl, exp_config, sess, kwargs=dict()):
     return X_adv
 
 
-def pgd_conv(x, y, images_pl, labels_pl, logits_pl, exp_config, sess, eps=None, step_alpha=None, num_steps=None, sizes=None,
+def pgd_conv(x, y, images_pl, labels_pl, logits_pl, exp_config, sess, eps=None, step_alpha=None, epochs=None, sizes=None,
              weights=None):
     mask_tensor_shape = [1] + list(exp_config.image_size)
 
@@ -59,7 +59,7 @@ def pgd_conv(x, y, images_pl, labels_pl, logits_pl, exp_config, sess, eps=None, 
     crafting_input = x.copy()
     crafting_output = crafting_input
     # crafting_target = y.copy()
-    for i in range(num_steps):
+    for i in range(epochs):
         grad_pl, = tf.gradients(loss, images_pl)
         grad = sess.run([grad_pl], feed_dict={images_pl: crafting_input,
                                               labels_pl: y})[0]
@@ -74,7 +74,7 @@ def pgd_conv(x, y, images_pl, labels_pl, logits_pl, exp_config, sess, eps=None, 
     added = crafting_output - x
     print('PDG DONE')
 
-    for i in range(num_steps * 2):
+    for i in range(epochs * 2):
         temp = tf.nn.conv2d(input=added, filter=weights[0], padding='SAME', data_format='NHWC')
         for j in range(len(sizes) - 1):
             temp = temp + tf.nn.conv2d(input=added, filter=weights[j + 1], padding='SAME', data_format='NHWC')
@@ -84,9 +84,10 @@ def pgd_conv(x, y, images_pl, labels_pl, logits_pl, exp_config, sess, eps=None, 
         temp = temp.eval(session=sess)
 
         grad_pl, = tf.gradients(loss, images_pl)
-        grad = sess.run([grad_pl], feed_dict={images_pl: x + temp,
+        grad = sess.run([grad_pl], feed_dict={images_pl: temp,
                                               labels_pl: y})[0]
         assert grad is not None
+        del temp
         added = added + step_alpha * np.sign(grad)
         added = np.clip(added, -eps, eps)
 
@@ -98,6 +99,7 @@ def pgd_conv(x, y, images_pl, labels_pl, logits_pl, exp_config, sess, eps=None, 
     temp = temp / float(len(sizes))
     temp = temp.eval(session=sess)
     crafting_output = x + temp
+    del temp
 
     print('SMOOTH PGD2 DONE')
 

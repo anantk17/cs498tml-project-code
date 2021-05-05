@@ -481,6 +481,7 @@ def iterate_minibatches(images, labels, batch_size, augment_batch=False):
     '''
 
     random_indices = np.arange(images.shape[0])
+    np.random.seed(0)
     np.random.shuffle(random_indices)
 
     n_images = images.shape[0]

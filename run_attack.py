@@ -15,6 +15,8 @@ import matplotlib.pyplot as plt
 import acdc_data
 import train
 from background_generator import BackgroundGenerator
+import json
+import copy
 
 np.random.seed(0)
 
@@ -78,9 +80,13 @@ def generate_adversarial_examples(input_folder, output_path, model_path, attack,
     attack_cdice = 0.0
     l2_diff_sum = 0.0
     ln_diff_sum = 0.0
+    ln_diff = 0.0
+    l2_diff = 0.0
     batches = 0
+    result_dict = []
 
     with tf.Session() as sess:
+        results = []
         sess.run(init)
         checkpoint_path = utils.get_latest_model_checkpoint_path(model_path, 'model_best_dice.ckpt')
         saver.restore(sess, checkpoint_path)
@@ -88,6 +94,10 @@ def generate_adversarial_examples(input_folder, output_path, model_path, attack,
         for batch in BackgroundGenerator(train.iterate_minibatches(images, labels, batch_size)):
             x, y = batch
             batches += 1
+
+            if batches != 9:
+              continue
+            
             non_adv_mask_out = sess.run([tf.arg_max(tf.nn.softmax(logits_pl), dimension=-1)], feed_dict={images_pl: x})
 
             if attack == 'fgsm':
@@ -98,57 +108,116 @@ def generate_adversarial_examples(input_folder, output_path, model_path, attack,
                 adv_x = adv_attack.pgd_conv(x, y, images_pl, labels_pl, logits_pl, exp_config, sess, **attack_args)
             else:
                 raise NotImplementedError
+            adv_x = [adv_x]
 
             if add_gaussian:
                 print('adding gaussian noise')
-                adv_x = adv_attack.add_gaussian_noise(x, adv_x, sess, eps=attack_args['eps'],
+                adv_x = adv_attack.add_gaussian_noise(x, adv_x[0], sess, eps=attack_args['eps'],
                                                       sizes=attack_args['sizes'], weights=attack_args['weights'])
 
-            l2_diff_sum += np.average(np.squeeze(np.linalg.norm(adv_x - x, axis=(1, 2))))
-            ln_diff_sum += np.average(np.squeeze(np.linalg.norm(adv_x - x, axis=(1, 2), ord=np.inf)))
+            for i in range(len(adv_x)):
+                l2_diff = np.average(np.squeeze(np.linalg.norm(adv_x[i] - x, axis=(1, 2))))
+                ln_diff = np.average(np.squeeze(np.linalg.norm(adv_x[i] - x, axis=(1, 2), ord=np.inf)))
 
-            print(l2_diff_sum, ln_diff_sum)
+                l2_diff_sum += l2_diff
+                ln_diff_sum += ln_diff
 
-            adv_mask_out = sess.run([tf.arg_max(tf.nn.softmax(logits_pl), dimension=-1)], feed_dict={images_pl: adv_x})
+                print(l2_diff, l2_diff)
 
-            closs, cdice = sess.run(eval_loss, feed_dict={images_pl: x, labels_pl: y})
-            baseline_closs = closs + baseline_closs
-            baseline_cdice = cdice + baseline_cdice
+                adv_mask_out = sess.run([tf.arg_max(tf.nn.softmax(logits_pl), dimension=-1)],
+                                        feed_dict={images_pl: adv_x[i]})
 
-            if add_gaussian:
-                adv_closs, adv_cdice = sess.run(eval_loss, feed_dict={images_pl: np.concatenate(adv_x),
-                                                                      labels_pl: np.concatenate([y]*len(adv_x))})
-            else:
-                adv_closs, adv_cdice = sess.run(eval_loss, feed_dict={images_pl: adv_x, labels_pl: y})
-            print("CLOSS : {}, CDICE : {}".format(closs, cdice))
-            print("ADV CLOSS : {}, ADV CDICE : {}".format(adv_closs, adv_cdice))
-            attack_closs = adv_closs + attack_closs
-            attack_cdice = adv_cdice + attack_cdice
+                closs, cdice = sess.run(eval_loss, feed_dict={images_pl: x, labels_pl: y})
+                baseline_closs = closs + baseline_closs
+                baseline_cdice = cdice + baseline_cdice
 
-            fig = plt.figure()
-            ax1 = fig.add_subplot(241)
-            ax1.imshow(np.squeeze(x), cmap='gray')
-            ax5 = fig.add_subplot(242)
-            ax5.imshow(np.squeeze(adv_x), cmap='gray')
-            ax2 = fig.add_subplot(243)
-            ax2.imshow(np.squeeze(y))
-            ax3 = fig.add_subplot(244)
-            ax3.imshow(np.squeeze(non_adv_mask_out))
-            ax4 = fig.add_subplot(245)
-            ax4.imshow(np.squeeze(adv_mask_out))
+                adv_closs, adv_cdice = sess.run(eval_loss, feed_dict={images_pl: adv_x[i], labels_pl: y})
+                attack_closs = adv_closs + attack_closs
+                attack_cdice = adv_cdice + attack_cdice
 
-            image_output_file = "images/output-{}-{}.pdf".format(attack,batches)
-            print("Writing output to ", image_output_file)
-            plt.savefig(image_output_file,format="pdf")
+                partial_result = dict({
+                  'attack' : attack,
+                  'attack_args' : {k : attack_args[k] for k in ['eps','step_alpha','epochs']}, #
+                  'baseline_closs' : closs,
+                  'baseline_cdice' : cdice,
+                  'attack_closs' : adv_closs,
+                  'attack_cdice' : adv_cdice,
+                  'attack_l2_diff' : l2_diff,
+                  'attack_ln_diff' : ln_diff
+                })
+
+                jsonString = json.dumps(str(partial_result))
+
+                #results.append(copy.deepcopy(result_dict))
+
+                with open("eval_results/{}-{}-{}-{}-metrics.json".format(attack, add_gaussian, batches,i),"w") as jsonFile:
+                  jsonFile.write(jsonString)
+
+                image_gt = "eval_results/ground-truth-{}-{}-{}-{}.pdf".format(attack, add_gaussian, batches, i)
+                plt.imshow(np.squeeze(x), cmap='gray')
+                plt.imshow(np.squeeze(y),cmap='viridis',alpha=0.7)
+                plt.axis('off')
+                plt.tight_layout()
+                plt.savefig(image_gt,format='pdf')
+                plt.clf()
+
+                image_benign = "eval_results/benign-{}-{}-{}-{}.pdf".format(attack, add_gaussian, batches, i)
+                plt.imshow(np.squeeze(x), cmap='gray')
+                plt.imshow(np.squeeze(non_adv_mask_out),cmap='viridis',alpha=0.7)
+                plt.axis('off')
+                plt.tight_layout()
+                plt.savefig(image_benign,format='pdf')
+                plt.clf()
+
+                image_adv = "eval_results/adversarial-{}-{}-{}-{}.pdf".format(attack, add_gaussian, batches, i)
+                plt.imshow(np.squeeze(adv_x[i]), cmap='gray')
+                plt.imshow(np.squeeze(adv_mask_out),cmap='viridis',alpha=0.7)
+                plt.axis('off')
+                plt.tight_layout()
+                plt.savefig(image_adv,format='pdf')
+                plt.clf()
+
+                plt.imshow(np.squeeze(adv_x[i]), cmap='gray')
+                image_adv_input = "eval_results/adv-input-{}-{}-{}-{}.pdf".format(attack, add_gaussian, batches, i)
+                plt.tight_layout()
+                plt.axis('off')
+                plt.savefig(image_adv_input,format='pdf')
+                plt.clf()
+
+                plt.imshow(np.squeeze(x), cmap='gray')
+                image_adv_input = "eval_results/benign-input-{}-{}-{}-{}.pdf".format(attack, add_gaussian, batches, i)
+                plt.axis('off')
+                plt.tight_layout()
+                plt.savefig(image_adv_input,format='pdf')
+                plt.clf()
+
+                print(attack_closs, attack_cdice, l2_diff, ln_diff)
 
         print("Evaluation results")
         print("{} Attack Params {}".format(attack, attack_args))
-        print("Baseline metrics: Avg loss {}, Avg DICE Score {} ".format(baseline_closs / batches,
-                                                                         baseline_cdice / batches))
-        print("{} Attack effectiveness: Avg loss {}, Avg DICE Score {} ".format(attack, attack_closs / batches,
-                                                                                attack_cdice / batches))
-        print("{} Attack visibility: Avg l2-norm diff {} Avg l-inf-norm diff {}".format(attack, l2_diff_sum / batches,
-                                                                                        ln_diff_sum / batches))
+        print("Baseline metrics: Avg loss {}, Avg DICE Score {} ".format(baseline_closs / (batches*len(adv_x)),
+                                                                         baseline_cdice / (batches*len(adv_x))))
+        print("{} Attack effectiveness: Avg loss {}, Avg DICE Score {} ".format(attack, attack_closs / (batches*len(adv_x)),
+                                                                                attack_cdice / (batches*len(adv_x))))
+        print("{} Attack visibility: Avg l2-norm diff {} Avg l-inf-norm diff {}".format(attack, l2_diff_sum / (batches*len(adv_x)),
+                                                                                        ln_diff_sum / (batches*len(adv_x))))
+        result_dict = dict({
+            'attack' : attack,
+            'attack_args' : {k : attack_args[k] for k in ['eps','step_alpha','epochs']}, #
+            'baseline_closs_avg' : baseline_closs / batches,
+            'baseline_cdice_avg' : baseline_cdice / batches,
+            'attack_closs_avg' : attack_closs / batches,
+            'attack_cdice_avg' : attack_cdice / batches,
+            'attack_l2_diff' : l2_diff_sum / batches,
+            'attack_ln_diff' : ln_diff_sum / batches
+          })
+
+        results.append(copy.deepcopy(result_dict))
+        print(results)
+        
+        jsonString = json.dumps(results)
+        with open("eval_results/{}-results.json".format(attack),"w") as jsonFile:
+          jsonFile.write(jsonString)
 
 
 if __name__ == '__main__':
@@ -156,6 +225,8 @@ if __name__ == '__main__':
     parser.add_argument("EXP_PATH", type=str,
                         help="Path to experiment folder (assuming you are in the working directory)")
     parser.add_argument("ATTACK", type=str, help="Algorithm to generate adversarial examples", choices=ATTACKS)
+    parser.add_argument("GAUSSIAN", type=lambda x: (str(x).lower() in ['true', '1', 'yes']),
+                        help="Perform gaussian attack with ATTACK as reference (default False)", default=False)
     args = parser.parse_args()
 
     # Setup model configuration
@@ -190,7 +261,7 @@ if __name__ == '__main__':
         print(crafting_sizes)
         print(crafting_weights)
 
-        attack_args = {'eps': 5, 'step_alpha': 1, 'num_steps': 10, 'sizes': crafting_sizes,
+        attack_args = {'eps': 5, 'step_alpha': 1, 'epochs': 10, 'sizes': crafting_sizes,
                        'weights': crafting_weights}
         generate_adversarial_examples(input_path,
                                       output_path,
@@ -198,9 +269,19 @@ if __name__ == '__main__':
                                       attack=args.ATTACK,
                                       attack_args=attack_args,
                                       exp_config=exp_config,
-                                      add_gaussian=False)
-    else:
-        attack_args = {'alpha': 0.01, 'eps': 10, 'ord': np.inf, 'epochs': 10}
+                                      add_gaussian=args.GAUSSIAN)
+    elif args.ATTACK == 'pgd':
+        attack_args = {'step_alpha': 0.025, 'eps': 5, 'ord': np.inf, 'epochs': 10}
+
+        generate_adversarial_examples(input_path,
+                                      output_path,
+                                      model_path,
+                                      attack=args.ATTACK,
+                                      attack_args=attack_args,
+                                      exp_config=exp_config)
+
+    elif args.ATTACK == 'fgsm':
+        attack_args = {'step_alpha': 0.25, 'eps': 5, 'ord': np.inf, 'epochs': 10}
 
         generate_adversarial_examples(input_path,
                                       output_path,
