@@ -1,4 +1,4 @@
-Adversarial Attacks against MRI Segmentation
+# Adversarial Attacks against MRI Segmentation
 
 This repository contains code to run adversarial attacks against the state-of-the-art cardiac cardiac segmentation networks as described in this paper: [An Exploration of 2D and 3D Deep Learning Techniques for Cardiac MR Image Segmentation](https://arxiv.org/abs/1709.04496). 
 
@@ -32,3 +32,6 @@ working directory. Giving the full path will not work.
   year={2017}
 }
 ```
+## Contributors:
+1. Abhinav Garg (garg19@illinois.edu)
+2. Anant Kandikuppa (anantk3@illinois.edu)
